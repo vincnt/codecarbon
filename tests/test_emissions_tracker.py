@@ -1,6 +1,7 @@
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -9,6 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 import pandas as pd
+import psutil
 import requests
 import responses
 
@@ -21,6 +23,7 @@ from codecarbon.emissions_tracker import (
     track_task_emissions,
 )
 from codecarbon.external.geography import CloudMetadata
+from codecarbon.external.hardware import B_TO_GB
 from codecarbon.output import BoAmpsOutput, CodeCarbonAPIOutput, OutputMethod
 from tests.fake_modules import pynvml as fake_pynvml
 from tests.testdata import (
@@ -1296,6 +1299,39 @@ class TestCarbonTracker(unittest.TestCase):
         self.assertIn("gpu_count", hardware_info)
         self.assertIn("gpu_model", hardware_info)
         self.assertIn("gpu_ids", hardware_info)
+
+    def test_get_detected_hardware_on_slurm_without_scontrol(
+        self,
+        mock_cli_setup,
+        mock_log_values,
+        mocked_get_gpu_details,
+        mocked_env_cloud_details,
+        mocked_get_gpu_utilization_list,
+        mocked_is_gpu_details_available,
+        mocked_is_nvidia_system,
+    ):
+        real_check_output = subprocess.check_output
+
+        def check_output_without_scontrol(cmd, *args, **kwargs):
+            if cmd[0] == "scontrol":
+                raise FileNotFoundError(2, "No such file or directory", "scontrol")
+            return real_check_output(cmd, *args, **kwargs)
+
+        with (
+            mock.patch("codecarbon.core.util.SLURM_JOB_ID", "12345"),
+            mock.patch("codecarbon.external.ram.SLURM_JOB_ID", "12345"),
+            mock.patch(
+                "subprocess.check_output", side_effect=check_output_without_scontrol
+            ),
+        ):
+            tracker = EmissionsTracker(save_to_file=False)
+            hardware_info = tracker.get_detected_hardware()
+
+        self.assertEqual(hardware_info["cpu_count"], psutil.cpu_count(logical=True))
+        self.assertAlmostEqual(
+            hardware_info["ram_total_size"],
+            psutil.virtual_memory().total / B_TO_GB,
+        )
 
     @mock.patch("codecarbon.emissions_tracker.EmissionsTracker._get_geo_metadata")
     @mock.patch("codecarbon.emissions_tracker.EmissionsTracker._get_cloud_metadata")

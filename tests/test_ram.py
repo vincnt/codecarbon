@@ -130,14 +130,19 @@ class TestRAM(unittest.TestCase):
         )
         self.assertIsNone(mock_check_output.call_args.kwargs.get("shell"))
 
-    @mock.patch(
-        "codecarbon.external.ram.subprocess.check_output",
-        side_effect=subprocess.CalledProcessError(1, "scontrol"),
-    )
-    def test_read_slurm_scontrol_returns_none_on_error(self, mock_check_output):
+    def test_read_slurm_scontrol_returns_none_on_error(self):
         ram = RAM(tracking_mode="slurm")
 
-        self.assertIsNone(ram._read_slurm_scontrol())
+        for error in (
+            subprocess.CalledProcessError(1, "scontrol"),
+            FileNotFoundError("scontrol"),
+        ):
+            with self.subTest(error=type(error).__name__):
+                with mock.patch(
+                    "codecarbon.external.ram.subprocess.check_output",
+                    side_effect=error,
+                ):
+                    self.assertIsNone(ram._read_slurm_scontrol())
 
     @mock.patch("codecarbon.external.ram.psutil.virtual_memory")
     def test_parse_scontrol_falls_back_to_machine_total_when_missing_mem(

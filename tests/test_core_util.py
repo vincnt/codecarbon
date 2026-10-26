@@ -1,4 +1,5 @@
 import shutil
+import subprocess
 import tempfile
 from unittest import mock
 
@@ -142,16 +143,19 @@ def test_count_cpus_slurm_no_gpu():
             assert count_cpus() == 16
 
 
-def test_count_cpus_slurm_exception():
-    import subprocess
-
+@pytest.mark.parametrize(
+    "error",
+    [subprocess.CalledProcessError(1, "cmd"), FileNotFoundError("scontrol")],
+)
+def test_count_cpus_slurm_exception(error, caplog):
     with mock.patch("codecarbon.core.util.SLURM_JOB_ID", "12345"):
         with mock.patch(
             "codecarbon.core.util.subprocess.check_output",
-            side_effect=subprocess.CalledProcessError(1, "cmd"),
+            side_effect=error,
         ):
             with mock.patch("codecarbon.core.util.psutil.cpu_count", return_value=4):
                 assert count_cpus() == 4
+    assert "Error running `scontrol show job 12345`" in caplog.text
 
 
 def test_count_cpus_slurm_malformed():
